@@ -69,15 +69,26 @@ def measure_rtt(url: str, probes: int = PROBES) -> dict:
     lost    = 0
 
     for _ in range(probes):
-        # TODO: send probe
+        try:
+            start = time.perf_counter()
+            urllib.request.urlopen(url, timeout=3)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            samples.append(elapsed_ms)
+        except Exception:
+            lost += 1
         time.sleep(0.2)
 
     if not samples:
         return {"min_ms": None, "mean_ms": None, "median_ms": None,
                 "loss_pct": 100.0, "samples": []}
 
-    # TODO: compute and return stats
-    return {}  # placeholder
+    return {
+        "min_ms":   float(np.min(samples)),
+        "mean_ms":  float(np.mean(samples)),
+        "median_ms":float(np.median(samples)),
+        "loss_pct": (lost / probes) * 100,
+        "samples":  samples,
+    }
 
 
 # ─────────────────────────────────────────────
@@ -97,8 +108,12 @@ def great_circle_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float
     Do NOT use geopy or any distance library.
     """
     R = 6371
-    # TODO
-    return 0.0  # placeholder
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 
 def get_my_location() -> tuple[float, float, str]:
@@ -127,8 +142,18 @@ def compute_inefficiency(results: dict, src_lat: float, src_lon: float) -> dict:
         4. Annotate results[city] in place.
     """
     for city, data in results.items():
-        # TODO
-        pass
+        lat2, lon2 = data["coords"]
+        dist = great_circle_km(src_lat, src_lon, lat2, lon2)
+        theoretical_min_ms = (dist / FIBER_SPEED_KM_S) * 2 * 1000
+        median = data.get("median_ms")
+        if median is not None:
+            ratio = median / theoretical_min_ms
+        else:
+            ratio = None
+        data["distance_km"] = dist
+        data["theoretical_min_ms"] = theoretical_min_ms
+        data["inefficiency_ratio"] = ratio
+        data["high_inefficiency"] = (ratio > 3.0) if ratio is not None else False
     return results
 
 
@@ -166,14 +191,45 @@ def make_plots(results: dict):
 
     # ── Figure 1 ──────────────────────────────
     fig, ax = plt.subplots(figsize=(11, 6))
-    # TODO
+    x = np.arange(len(cities))
+    width = 0.35
+    measured = [valid[c]["median_ms"] for c in cities]
+    theoretical = [valid[c]["theoretical_min_ms"] for c in cities]
+    ax.bar(x - width / 2, measured, width, label="Measured Median RTT", color="#e63946")
+    ax.bar(x + width / 2, theoretical, width, label="Theoretical Min RTT", color="#457b9d")
+    ax.set_xticks(x)
+    ax.set_xticklabels(cities, rotation=30, ha="right")
+    ax.set_ylabel("RTT (ms)")
+    ax.set_xlabel("City (sorted by distance)")
+    ax.set_title("Measured vs. Theoretical Minimum RTT")
+    ax.legend()
     plt.tight_layout()
     plt.savefig(f"{FIGURES_DIR}/fig1_rtt_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     # ── Figure 2 ──────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 7))
-    # TODO
+    distances = [valid[c]["distance_km"] for c in cities]
+    medians = [valid[c]["median_ms"] for c in cities]
+    # Dashed theoretical minimum line
+    d_range = np.linspace(0, max(distances) * 1.1, 200)
+    theoretical_line = (d_range / FIBER_SPEED_KM_S) * 2 * 1000
+    ax.plot(d_range, theoretical_line, "k--", linewidth=1.5, label="Theoretical minimum")
+    # Scatter points colored by continent
+    for c in cities:
+        d = valid[c]
+        color = CONTINENT_COLORS.get(d["continent"], "#888888")
+        ax.scatter(d["distance_km"], d["median_ms"], c=color, s=100, zorder=5, edgecolors="black", linewidths=0.5)
+        ax.annotate(c, (d["distance_km"], d["median_ms"]),
+                    textcoords="offset points", xytext=(8, 6), fontsize=9)
+    # Continent legend
+    handles = [mpatches.Patch(color=col, label=cont) for cont, col in CONTINENT_COLORS.items()
+               if any(valid[c]["continent"] == cont for c in cities)]
+    ax.legend(handles=handles + [plt.Line2D([], [], color="k", linestyle="--", label="Theoretical minimum")],
+              loc="upper left")
+    ax.set_xlabel("Great-Circle Distance (km)")
+    ax.set_ylabel("Measured Median RTT (ms)")
+    ax.set_title("RTT vs. Distance — Measured and Theoretical Minimum")
     plt.tight_layout()
     plt.savefig(f"{FIGURES_DIR}/fig2_distance_scatter.png", dpi=150, bbox_inches="tight")
     plt.close()
