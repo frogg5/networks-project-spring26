@@ -189,7 +189,7 @@ def make_plots(results: dict):
     valid  = {c: d for c, d in results.items() if d.get("median_ms") is not None}
     cities = sorted(valid, key=lambda c: valid[c]["distance_km"])
 
-    # ── Figure 1 ──────────────────────────────
+    #fig 1
     fig, ax = plt.subplots(figsize=(11, 6))
     x = np.arange(len(cities))
     width = 0.35
@@ -207,22 +207,22 @@ def make_plots(results: dict):
     plt.savefig(f"{FIGURES_DIR}/fig1_rtt_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
 
-    # ── Figure 2 ──────────────────────────────
+    #fig2
     fig, ax = plt.subplots(figsize=(10, 7))
     distances = [valid[c]["distance_km"] for c in cities]
     medians = [valid[c]["median_ms"] for c in cities]
-    # Dashed theoretical minimum line
+    #Dashed theoretical minimum line
     d_range = np.linspace(0, max(distances) * 1.1, 200)
     theoretical_line = (d_range / FIBER_SPEED_KM_S) * 2 * 1000
     ax.plot(d_range, theoretical_line, "k--", linewidth=1.5, label="Theoretical minimum")
-    # Scatter points colored by continent
+    #  Scatter points colored by continent
     for c in cities:
         d = valid[c]
         color = CONTINENT_COLORS.get(d["continent"], "#888888")
         ax.scatter(d["distance_km"], d["median_ms"], c=color, s=100, zorder=5, edgecolors="black", linewidths=0.5)
         ax.annotate(c, (d["distance_km"], d["median_ms"]),
                     textcoords="offset points", xytext=(8, 6), fontsize=9)
-    # Continent legend
+    #Continent legend
     handles = [mpatches.Patch(color=col, label=cont) for cont, col in CONTINENT_COLORS.items()
                if any(valid[c]["continent"] == cont for c in cities)]
     ax.legend(handles=handles + [plt.Line2D([], [], color="k", linestyle="--", label="Theoretical minimum")],
